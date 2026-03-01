@@ -66,7 +66,7 @@ tsQuotes <- list(
 
 params = list(tradeDate = max_date,
               settleDate = max_date,
-              dt = 0.001,
+              dt = 0.5,
               interpWhat = "zero",
               interpHow  = "spline"
 )
@@ -84,7 +84,7 @@ zero_curve <- data.frame(T2M = curve$times,
                          type = "zero_rate")
 
 
-combined_curve<- rbind(interpolated_curve, zero_curve)
+combined_curve <- rbind(interpolated_curve, zero_curve)
 
 combined_curve_plot <- ggplot2::ggplot(combined_curve,
                         aes(x = T2M, y = yield, color = type)) +
@@ -92,41 +92,88 @@ combined_curve_plot <- ggplot2::ggplot(combined_curve,
 
 combined_curve_plot # This doesn't seem correct as zero rates should not be lower then par rates
 
-coupon = 0.0426
-face_value = 100
-t2m = 4.67
-freq = 2
-
-periods = t2m * freq
-
-t2m = zero_curve
-
-price <-  RTL::bond(ytm = , C = coupon, T2M = t2m, m = freq)
-
-price <- RQuantLib::FixedRateBond()
 
 
+price_bond <- function(coupon_rate, face_value, expiry_date, valuation_date, m=2, zero_curve){
+
+  T2M <- interval(valuation_date,expiry_date) %>% 
+    time_length("years") %>% 
+    round(3)
+  
+  cfs <- c()
+  discount_factors <- c()
+  pvs <- c()
+  times <- c()
+  
+  if (T2M > 1/m) { # If maturity is further than the first coupon payment
+    
+    schedule <- round(rev(seq(from = T2M, to = 0, by = -1/m)),3)
+    
+    # if (T2M %% 1/m != 0) { # Add the final principle payment at maturity
+    #   schedule <- append(schedule, T2M)
+    #}
+  } else { # If maturity is before the hypothetical first coupon payment
+    schedule <- T2M
+  }
+  
+  for (i in 1:length(schedule)) {
+    
+    if (i > 1) {
+      prev_time <- schedule[i-1]
+    } else {
+      prev_time <- 0
+    }
+    
+    time <- schedule[i]
+    
+    zero_rate <- zero_curve %>%
+      dplyr::filter(round(zero_curve$T2M,3) == schedule[i]) %>%
+      dplyr::pull(yield)
+    
+    period_length <- time - prev_time
+    cf <- coupon_rate * period_length * face_value
+    
+    if (i == length(schedule)) {
+      cf <- cf + face_value
+    }
+    
+    discount_factor <- 1/((1 + zero_rate/m)^(time*m))
+    pv <- cf * discount_factor
+    
+    times <- append(times, time)
+    cfs <- append(cfs, cf)
+    discount_factors <- append(discount_factors, discount_factor)
+    pvs <- append(pvs, pv)
+    
+  }
+
+  table <- data.frame(times, cfs, discount_factors, pvs)
+  
+  price <- sum(table$pvs)
+  
+  return(price)
+}
+
+test <- price_bond(0.0357,100,"2027-06-18",max_date,2,zero_curve)
+
+
+price_portfolio <- function(portfolio_df, valuation_date, zero_curve) {
+  portfolio_df %>%
+    rowwise() %>%
+    mutate(
+      price = price_bond(coupon_rate, face_value, expiry_date, valuation_date, m, zero_curve))
+}
+
+
+# shift_curve <- function(zero_curve, bump_bp = 1) {
+#   zero_curve %>%
+#     mutate(yield = yield + bump_bp/10000)
+# }
 
 
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# 
 # bootstrap <- function(fred_curve) {
 #   
 #   data <- data.frame()
