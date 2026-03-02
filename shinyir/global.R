@@ -11,94 +11,104 @@ rate_data <- tidyquant::tq_get(fred_codes,
     T2M = dplyr::case_when(
       grepl("MO", symbol) ~ as.numeric(str_extract(symbol, "\\d+"))/12,
       .default = as.numeric(str_extract(symbol, "\\d+"))),
-    yield = price / 100) %>% 
+    par_yield = price / 100) %>% 
   dplyr:: select(-price) %>% 
   tidyr::drop_na()
 
-current_curve <- rate_data %>% 
-  dplyr::filter(date == max(date)) %>% 
-  dplyr::select(T2M, yield)
-
-max_date <- max(rate_data$date)
 
 
-# should bootstrap fred curve to zero curve before interpolation
-#bootstrap <- function()
 
-# zero_curve <- RQuantLib::DiscountCurve(
-#   params = list(interpWhat = "discount",
-#                 interpHow = "loglinear"),
-#   tsQuotes = current_curve$yield,
-#   times = current_curve$T2M
-# )
+interpolate_curve <- function(valuation_date) {
+  current_curve <- rate_data %>% 
+    dplyr::filter(date == valuation_date) %>% 
+    dplyr::select(T2M, par_yield)
+  
+  T2M_interpolated <- seq(0.5, max(current_curve$T2M), by = 0.5)
+  
+  fun <- splinefun(x = current_curve$T2M, y = current_curve$par_yield, method = "natural")
+  
+  y_vals <- fun(T2M_interpolated)
+  
+  interpolated_curve <- data.frame(T2M = T2M_interpolated,
+                                   par_yield = y_vals)
+  
+  return(interpolated_curve)
+  
+}
+
+#current_curve <- interpolate_curve("2026-02-06")
+
+
+bootstrap_curve <- function(fred_curve) {
+  
+  T2M <- c()
+  zero_yields <- c()
+  
+  fred_yields <- c()
+  face_value <- 100
+  
+  m <- 2 # Fred par yield curve assumes semi annual payments
+  
+  for(i in 1:nrow(fred_curve)) {
+    
+    t2m <- fred_curve$T2M[i]
+    yield <- fred_curve$par_yield[i]
+    coupon <- yield * face_value / m
+    periods <- t2m * m
+    
+    if (t2m < 1) { # No coupon payments if matruity less then 1 year.
+      
+      zero_yield <- yield
+      zero_yields <- append(zero_yields,zero_yield)
+      T2M <- append(T2M, t2m)
+      
+    } else {
+      
+      # calculating the present value of the coupon payments with their respective zero yield.
+      
+      coupon_cumsum <- 0
+      
+      for (j in 1:(periods - 1)) {
+        
+        coupon_zero_yield <- zero_yields[j]
+        coupon_cumsum <- coupon_cumsum + (coupon/(1+coupon_zero_yield/m)^j)
+        
+      }
+      
+      # solving for the zero rate in the final repayment that keeps the price at par
+      
+      zero_yield <- m * (((coupon + face_value)/(face_value - coupon_cumsum))^(1/periods)-1)
+      
+      zero_yields <- append(zero_yields, zero_yield)
+      T2M <- append(T2M, t2m)
+      
+    }
+    
+    zero_curve <- data.frame(T2M, zero_yields)
+    
+  }
+  return(zero_curve)
+}
+
+#zero_curve <- bootstrap_curve(current_curve)
+
+
+#combined_curve <- merge(current_curve, zero_curve, by = "T2M")
+
+
+# combined_curve_plot <- ggplot2::ggplot(combined_curve,
+#                         aes(x = T2M)) +
+#   geom_line(aes(y = par_yield)) +
+#   geom_line(aes(y = zero_yields))
 # 
-# test <- current_curve$yield
-
-fun <- splinefun(x = current_curve$T2M, y = current_curve$yield, method = "natural")
-
-T2M_interpolated <- seq(min(current_curve$T2M), max(current_curve$T2M), by = 0.001)
-
-y_vals <- fun(T2M_interpolated)
-
-interpolated_curve <- data.frame(T2M = T2M_interpolated,
-                                 yield = y_vals,
-                                 type = "par_rates")
-
-# interpolated_curve_plot <- ggplot2::ggplot(interpolated_curve,
-#                         aes(x = T2M_interpolated, y = y_vals)) +
-#   geom_line()
-# 
-# interpolated_curve_plot
-
-tsQuotes <- list(
-  d1m  = current_curve$yield[1],
-  d3m  = current_curve$yield[2],
-  d6m  = current_curve$yield[3],
-  d1y  = current_curve$yield[4],
-  s2y  = current_curve$yield[5],
-  s3y  = current_curve$yield[6],
-  s5y  = current_curve$yield[7],
-  s7y  = current_curve$yield[8],
-  s10y = current_curve$yield[9],
-  s20y = current_curve$yield[10],
-  s30y = current_curve$yield[11]
-)
-
-params = list(tradeDate = max_date,
-              settleDate = max_date,
-              dt = 0.5,
-              interpWhat = "zero",
-              interpHow  = "spline"
-)
-
-times = seq(min(current_curve$T2M), max(current_curve$T2M), by = 0.001)
-
-curve <- RQuantLib::DiscountCurve(
-  params,
-  tsQuotes,
-  times
-)
-
-zero_curve <- data.frame(T2M = curve$times, 
-                         yield = curve$zerorates,
-                         type = "zero_rate")
+# combined_curve_plot # This doesn't seem correct as zero rates should not be lower then par rates
 
 
-combined_curve <- rbind(interpolated_curve, zero_curve)
-
-combined_curve_plot <- ggplot2::ggplot(combined_curve,
-                        aes(x = T2M, y = yield, color = type)) +
-  geom_line()
-
-combined_curve_plot # This doesn't seem correct as zero rates should not be lower then par rates
-
-
-
-price_bond <- function(coupon_rate, face_value, expiry_date, valuation_date, m=2, zero_curve){
+price_bond <- function(coupon_rate, face_value, expiry_date, valuation_date, m=2, zero_curve, step_size = 0){
 
   T2M <- interval(valuation_date,expiry_date) %>% 
     time_length("years") %>% 
-    round(3)
+    round(4)
   
   cfs <- c()
   discount_factors <- c()
@@ -107,7 +117,7 @@ price_bond <- function(coupon_rate, face_value, expiry_date, valuation_date, m=2
   
   if (T2M > 1/m) { # If maturity is further than the first coupon payment
     
-    schedule <- round(rev(seq(from = T2M, to = 0, by = -1/m)),3)
+    schedule <- round(rev(seq(from = T2M, to = 0, by = -1/m)),4)
     
     # if (T2M %% 1/m != 0) { # Add the final principle payment at maturity
     #   schedule <- append(schedule, T2M)
@@ -127,8 +137,10 @@ price_bond <- function(coupon_rate, face_value, expiry_date, valuation_date, m=2
     time <- schedule[i]
     
     zero_rate <- zero_curve %>%
-      dplyr::filter(round(zero_curve$T2M,3) == schedule[i]) %>%
+      dplyr::filter(round(zero_curve$T2M,4) == schedule[i]) %>%
       dplyr::pull(yield)
+    
+    zero_rate <- zero_rate + step_size
     
     period_length <- time - prev_time
     cf <- coupon_rate * period_length * face_value
@@ -154,141 +166,46 @@ price_bond <- function(coupon_rate, face_value, expiry_date, valuation_date, m=2
   return(price)
 }
 
-test <- price_bond(0.0357,100,"2027-06-18",max_date,2,zero_curve)
+#test <- price_bond(0.0357,100,"2035-06-18",max_date,2,zero_curve)
+
+calc_delta <- function(coupon_rate, face_value, expiry_date, valuation_date, m, zero_curve, step_size) {
+  price_up <- price_bond(coupon_rate, face_value, expiry_date, valuation_date, m, zero_curve, step_size)
+  price_dwn <- price_bond(coupon_rate, face_value, expiry_date, valuation_date, m, zero_curve, step_size*-1)
+  
+  delta <- (price_up - price_dwn)/(2*step_size)
+  
+  return(delta)
+}
+
+#delta_test <- calc_delta(0.0357,100,"2035-06-18",max_date,2,zero_curve, 0.0001)
+
+calc_gamma <- function(coupon_rate, face_value, expiry_date, valuation_date, m, zero_curve, step_size) {
+  price <- price_bond(coupon_rate, face_value, expiry_date, valuation_date, m, zero_curve, step_size = 0)
+  price_up <- price_bond(coupon_rate, face_value, expiry_date, valuation_date, m, zero_curve, step_size)
+  price_dwn <- price_bond(coupon_rate, face_value, expiry_date, valuation_date, m, zero_curve, step_size*-1)
+  
+  gamma <- (price_up - 2*price + price_dwn)/(step_size^2)
+  
+  return(gamma)
+}
+
+#gamma_test <- calc_gamma(0.0357,100,"2035-06-18",max_date,2,zero_curve, 0.0001)
 
 
-price_portfolio <- function(portfolio_df, valuation_date, zero_curve) {
+#test_df2 <- data.frame(coupon_rate = 0.0357, face_value = 100, expiry = "2035-06-18", step_size = 0.0001, price = test, delta = delta_test, gamma = gamma_test)
+
+
+price_portfolio <- function(portfolio_df, valuation_date, zero_curve, step_size) {
   portfolio_df %>%
-    rowwise() %>%
-    mutate(
-      price = price_bond(coupon_rate, face_value, expiry_date, valuation_date, m, zero_curve))
+    dplyr::rowwise() %>%
+    dplyr::mutate(
+      price = price_bond(coupon_rate, face_value, expiry_date, valuation_date, m, zero_curve, step_size = 0),
+      delta = calc_delta(coupon_rate, face_value, expiry_date, valuation_date, m, zero_curve, step_size),
+      gamma = calc_gamma(coupon_rate, face_value, expiry_date, valuation_date, m, zero_curve, step_size))
 }
 
 
-# shift_curve <- function(zero_curve, bump_bp = 1) {
-#   zero_curve %>%
-#     mutate(yield = yield + bump_bp/10000)
-# }
-
-
-
-
-
-# bootstrap <- function(fred_curve) {
-#   
-#   data <- data.frame()
-#   discount_factor_list <- c()
-#   
-#   for(i in 1:nrow(fred_curve)) {
-#     
-#     T2M <- fred_curve$T2M[i]
-#     yield <- fred_curve$yield[i]
-#     
-#     face_value <- 100
-#     payment_freq <- 2 # semi-annual payments
-#     
-#     if(T2M <= 1) { # maturities one year or less don't pay coupons, so the fred rate = zero rate.
-#       
-#       periods <- 0
-#       zero_rate <- yield
-#       discount_factor <- 1 / (1 + zero_rate/1)^T2M  # annual compounding for short-term
-#       discount_factor_list <- c(discount_factor_list, discount_factor)
-#       
-#     } else {
-#       
-#       periods <- T2M * payment_freq
-#       coupon <- face_value * yield / payment_freq
-#       
-#       # sum of known discounted coupons (from previously bootstrapped DFs)
-#       # Only include as many DFs as there are coupon payments before maturity
-#       n_prev <- length(discount_factor_list)
-#       n_coupons <- periods - 1
-#       if(n_coupons > n_prev) n_coupons <- n_prev  # cannot use more than known DFs
-#       
-#       sum_known <- sum(coupon * discount_factor_list[1:n_coupons])
-#       
-#       # calculate discount factor for final period
-#       discount_factor <- (face_value + coupon - sum_known) / (face_value + coupon)
-#       
-#       # calculate zero rate from discount factor
-#       zero_rate <- 2 * (discount_factor^(-1/periods) - 1)
-#       
-#       # append DF to list
-#       discount_factor_list <- c(discount_factor_list, discount_factor)
-#       
-#     }
-#     
-#     new_row <- data.frame(T2M, periods, yield, zero_rate)
-#     
-#     data <- rbind(data, new_row)
-#     
-#   }
-#   return(data)
-# }
-# 
-# zero_curve <- bootstrap(current_curve)
-
-
-
-
-
-
-
-
-
-
-# #helper function to get the actual values from the ticker names since "DiscountCurve" only reads the numbers
-# q <- function(df_day, sym){
-#   df_day %>%
-#     filter(symbol == sym) %>%
-#     pull(rate) %>%
-#     first()
-# }
-# 
-# # The building process of the zero rate curve requires a function called "DiscountCurve" and it requires some things I create here such as "params" and "tsQuotes"
-# build_curve_tbl <- function(df_day, eval_date, grid_times = seq(0.25, 30, by = 0.25), m = 2) {
-#   
-#   # Quotes for DiscountCurve
-#   tsQuotes <- list(
-#     d1m = q(df_day, "DGS1MO"),
-#     d3m = q(df_day, "DGS3MO"),
-#     d6m = q(df_day, "DGS6MO"),
-#     d1y = q(df_day, "DGS1"),
-#     s2y = q(df_day, "DGS2"),
-#     s5y = q(df_day, "DGS5"),
-#     s10y = q(df_day, "DGS10"),
-#     s20y = q(df_day, "DGS20"),
-#     s30y = q(df_day, "DGS30")
-#   )
-#   
-#   params <- list(
-#     tradeDate = eval_date,
-#     settleDate = eval_date,
-#     dt = 1/365,
-#     interpWhat = "discount",
-#     interpHow = "loglinear"
-#   )
-#   
-#   # VERY Cool function to get the zero rates
-#   curve <- RQuantLib::DiscountCurve(params, tsQuotes, grid_times)
-#   
-#   # Creating a table to show the maturities, DFs and Zero Rates
-#   tibble(
-#     maturity = grid_times,
-#     discount_factor = as.numeric(curve$discounts),
-#     zero_rate = as.numeric(curve$zerorates)
-#   )
-#   
-# }
-
-
-
-
-
-
-
-
-
-
-
-
+shift_entire_curve <- function(zero_curve, bp_shift = 1) {
+  zero_curve %>%
+    dplyr::mutate(zero_yields = zero_yields + bp_shift/10000)
+}
