@@ -1,6 +1,7 @@
 library(tidyverse)
 library(tidyquant)
 library(RQuantLib)
+library(plotly)
 
 fred_codes <- c("DGS1MO","DGS3MO", "DGS6MO", "DGS1", "DGS2","DGS3", "DGS5","DGS7","DGS10","DGS20","DGS30")
 
@@ -46,6 +47,7 @@ bootstrap_curve <- function(fred_curve) {
   
   fred_yields <- c()
   face_value <- 100
+  dates <- fred_curve[,2]
   
   m <- 2 # Fred par yield curve assumes semi annual payments
   
@@ -86,7 +88,9 @@ bootstrap_curve <- function(fred_curve) {
     
     zero_curve <- data.frame(T2M, zero_yields)
     
+    
   }
+  zero_curve <- cbind(zero_curve, dates)
   return(zero_curve)
 }
 
@@ -136,9 +140,13 @@ price_bond <- function(coupon_rate, face_value, expiry_date, valuation_date, m=2
     
     time <- schedule[i]
     
-    zero_rate <- zero_curve %>%
-      dplyr::filter(round(zero_curve$T2M,4) == schedule[i]) %>%
-      dplyr::pull(yield)
+    zero_rate <- zero_curve %>% arrange(abs(T2M-schedule[i])) %>% 
+      slice(1) %>%
+      dplyr::pull(zero_yields)
+    
+    #zero_rate <- zero_curve %>%
+    #  dplyr::filter(round(zero_curve$T2M,4) == schedule[i]) %>%
+    #  dplyr::pull(zero_yields)
     
     zero_rate <- zero_rate + step_size
     
@@ -165,10 +173,17 @@ price_bond <- function(coupon_rate, face_value, expiry_date, valuation_date, m=2
   
   return(price)
 }
-
+#valuation_date <- max_date
+#expiry_date <- "2035-06-18"
+#coupon_rate <- 0.0357
+#face_value <- 100
+#i <- 2
+#m = 2
+#step_size <- 0
 #test <- price_bond(0.0357,100,"2035-06-18",max_date,2,zero_curve)
 
 calc_delta <- function(coupon_rate, face_value, expiry_date, valuation_date, m, zero_curve, step_size) {
+  
   price_up <- price_bond(coupon_rate, face_value, expiry_date, valuation_date, m, zero_curve, step_size)
   price_dwn <- price_bond(coupon_rate, face_value, expiry_date, valuation_date, m, zero_curve, step_size*-1)
   
@@ -176,10 +191,11 @@ calc_delta <- function(coupon_rate, face_value, expiry_date, valuation_date, m, 
   
   return(delta)
 }
-
+#max_date <- Sys.Date()
 #delta_test <- calc_delta(0.0357,100,"2035-06-18",max_date,2,zero_curve, 0.0001)
 
 calc_gamma <- function(coupon_rate, face_value, expiry_date, valuation_date, m, zero_curve, step_size) {
+  
   price <- price_bond(coupon_rate, face_value, expiry_date, valuation_date, m, zero_curve, step_size = 0)
   price_up <- price_bond(coupon_rate, face_value, expiry_date, valuation_date, m, zero_curve, step_size)
   price_dwn <- price_bond(coupon_rate, face_value, expiry_date, valuation_date, m, zero_curve, step_size*-1)
@@ -208,4 +224,15 @@ price_portfolio <- function(portfolio_df, valuation_date, zero_curve, step_size)
 shift_entire_curve <- function(zero_curve, bp_shift = 1) {
   zero_curve %>%
     dplyr::mutate(zero_yields = zero_yields + bp_shift/10000)
+}
+
+#graph the Zero Rate over time for the specified time to maturity
+graph_zero_curve <- function(rate_data = rate_data, code, dateRange){
+  zero_graph <- rate_data %>% 
+    filter(symbol == code, date >= dateRange[1], date <= dateRange[2]) %>% 
+    bootstrap_curve() %>% 
+    plot_ly() %>% 
+    add_trace(x = ~date, y = ~zero_yields, type = "scatter", mode = "lines") %>% 
+    layout(title = paste0("Zero Curve of ", code, " Treasury Bills"), xaxis = list(title = "Annualized Yield of a Zero Coupon Bond"), yaxis = list(title = "Date"))
+  return(zero_graph)
 }
