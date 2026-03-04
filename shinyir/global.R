@@ -179,15 +179,22 @@ price_bond <- function(coupon_rate, face_value, expiry_date, valuation_date, m=2
 #face_value <- 100
 #i <- 2
 #m = 2
-#step_size <- 0
+#step_size <- 0.0001
 #test <- price_bond(0.0357,100,"2035-06-18",max_date,2,zero_curve)
+
+#price_up - price_dwn
+#p_up_table <- table
+#p_down_table <- table
+
+#diff <- sum(p_up_table$pvs)-sum(p_down_table$pvs)
+#diff / (2*0.0001) * 0.0001
 
 calc_delta <- function(coupon_rate, face_value, expiry_date, valuation_date, m, zero_curve, step_size) {
   
-  price_up <- price_bond(coupon_rate, face_value, expiry_date, valuation_date, m, zero_curve, step_size)
-  price_dwn <- price_bond(coupon_rate, face_value, expiry_date, valuation_date, m, zero_curve, step_size*-1)
+  price_up <- price_bond(coupon_rate, face_value, expiry_date, valuation_date, m, zero_curve, step_size = step_size)
+  price_dwn <- price_bond(coupon_rate, face_value, expiry_date, valuation_date, m, zero_curve, step_size =  step_size*-1)
   
-  delta <- (price_up - price_dwn)/(2*step_size)
+  delta <- (price_up - price_dwn)/(2*step_size) * step_size
   
   return(delta)
 }
