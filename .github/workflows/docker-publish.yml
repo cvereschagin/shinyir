@@ -26,4 +26,4 @@ jobs:
         context: .
         file: ./Dockerfile
         push: true
-        tags: cvereschagin/shinyir:latest
+        tags: bchoiqwe/shinyir:latest
