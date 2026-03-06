@@ -8,9 +8,9 @@ RUN apt-get clean all && \
     apt-get clean all && \
     rm -rf /var/lib/apt/lists/*
 
-RUN git clone https://github.com/bchoi-qwe/IRShinyApp.git /IRShinyApp
-RUN Rscript /IRShinyApp/requirements.R
+RUN git clone https://github.com/cvereschagin/shinyir.git /shinyir
+RUN Rscript /shinyir/requirements.R
 
 EXPOSE 3838
 
-CMD ["Rscript", "-e", "shiny::runApp('/IRShinyApp/app', host = '0.0.0.0', port = 3838)"]
+CMD ["Rscript", "-e", "shiny::runApp('/shinyir/shinyir', host = '0.0.0.0', port = 3838)"]
