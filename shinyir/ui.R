@@ -13,7 +13,8 @@ page_navbar(
     dateInput("valuation_date", "Select Valuation Date", min = min(rate_data$date), max = max(rate_data$date)),
     numericInput("coupon_rate", "Coupon Rate (%)", value = 5, step = 0.01),
     numericInput("face_value", "Face Value", value = 1000, step = 100),
-    dateInput("maturity_date", "Maturity Date"),
+    numericInput("basis_step", "Basis Point Step", value = 1, step = 1),
+    dateInput("maturity_date", "Maturity Date", value = Sys.Date() + years(1)),
     selectInput("coupon_freq", "Coupon Frequency", choices = c("Annual", "SemiAnnual")),
     actionButton("add_bond_button", "Add To Portfolio"),
     actionButton("clear_portfolio", "Clear Entire Portfolio")
@@ -30,23 +31,23 @@ page_navbar(
       uiOutput("yield_curve_header"),
       plotOutput("yield_plot")
     )
+),
+nav_panel(
+  title = "Analysis",
+  card(
+    card_header("Bond Portfolio"),
+    DTOutput("bond_table")
+  ),
+  card(
+    uiOutput("back_button"),
+    uiOutput("calendar_button")
+  ),
+  row_heights = c(4,1)
 )
 )
     
-#     # Second Page - Analysis
-#   nav_panel(
-#     title = "Analysis",
-#     card(
-#       card_header("Bond Portfolio"),
-#       tableOutput("bond_table")
-#     ),
-#     card(
-#       uiOutput("back_button"),
-#       uiOutput("calendar_button")
-#     ),
-#     row_heights = c(4,1)
-#   ),
-#     
+#      Second Page - Analysis
+     
 #     # Third Page - Scenarios
 #   nav_panel(
 #     title = "Scenario",

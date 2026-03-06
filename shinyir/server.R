@@ -23,6 +23,13 @@ function(input, output, session) {
     )
   )
   
+  prices <- reactiveVal(
+    data.frame(
+      "Price" = as.numeric(),
+      "Delta" = as.numeric(),
+      "Gamma" = as.numeric())
+  )
+  
   observeEvent(input$add_bond_button, {
     new_bond <- data.frame("Coupon Rate" = input$coupon_rate,
                            "Face Value" = input$face_value,
@@ -30,6 +37,8 @@ function(input, output, session) {
                            "Coupon Frequency" = input$coupon_freq,
                            check.names = FALSE)
     portfolio(rbind(portfolio(), new_bond))
+    new_price <- data.frame(get_master_df(coupon =  input$coupon_rate / 100, input$face_value, input$maturity_date, input$valuation_date, input$coupon_freq, input$basis_step))
+    prices(rbind(prices(), new_price))
   })
   
   observeEvent(input$clear_portfolio, {
@@ -66,5 +75,10 @@ function(input, output, session) {
   
   output$yield_plot <- renderPlot({
     combined_curve_plot()
+  })
+  
+  
+  output$bond_table <- renderDT({
+    DT::datatable(prices(), editable = FALSE)
   })
 }

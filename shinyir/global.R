@@ -48,7 +48,6 @@ bootstrap_curve <- function(fred_curve) {
   
   fred_yields <- c()
   face_value <- 100
-  dates <- fred_curve[,2]
   
   m <- 2 # Fred par yield curve assumes semi annual payments
   
@@ -91,7 +90,6 @@ bootstrap_curve <- function(fred_curve) {
     
     
   }
-  zero_curve <- cbind(zero_curve, dates)
   return(zero_curve)
 }
 
@@ -242,24 +240,29 @@ graph_zero_curve <- function(rate_data = rate_data, code, dateRange){
   return(zero_graph)
 }
 
-get_master_df <- function(coupon_rate, face_value, valuation_date, m, step_size){
+get_master_df <- function(coupon, face, expiry, valuation_date, m, basis_step){
   zero_curve <- interpolate_curve(valuation_date = valuation_date) %>% bootstrap_curve()
-  prices <- c()
+  Price <- c()
   Delta <- c()
   Gamma <- c()
-  for (T in zero_curve$T2M){
-    expiry_date <- as.Date(valuation_date) + dyears(T)
     
-    price <- price_bond(coupon_rate, face_value, expiry_date, valuation_date, m, zero_curve, 0)
-    prices <- append(prices,price)
+    if (m  == "Annual"){
+      m <-  1
+    }
+    else{
+      m <-  2
+    }
     
-    delta <- calc_delta(coupon_rate, face_value, expiry_date, valuation_date, m, zero_curve, step_size)
+    price <- price_bond(coupon, face, expiry, valuation_date, m, zero_curve, 0)
+    Price <- append(Price,price)
+    
+    delta <- calc_delta(coupon, face, expiry, valuation_date, m, zero_curve, basis_step)
     Delta <- append(Delta, delta)
     
-    gamma <- calc_gamma(coupon_rate, face_value, expiry_date, valuation_date, m, zero_curve, step_size)
+    gamma <- calc_gamma(coupon, face, expiry, valuation_date, m, zero_curve, basis_step)
     Gamma <- append(Gamma, gamma)
-  }
-  master_df <- cbind(zero_curve, prices, Delta, Gamma)
+  
+  master_df <- data.frame(Price, Delta, Gamma)
   return(master_df)
 }
 
