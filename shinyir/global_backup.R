@@ -3,22 +3,21 @@ library(tidyquant)
 library(RQuantLib)
 library(plotly)
 
-# fred_codes <- c("DGS1MO","DGS3MO", "DGS6MO", "DGS1", "DGS2","DGS3", "DGS5","DGS7","DGS10","DGS20","DGS30")
-# 
-# rate_data <- tidyquant::tq_get(fred_codes, 
-#                                get = "economic.data",
-#                                from = "1992-01-01") %>% 
-#   dplyr::mutate(
-#     T2M = dplyr::case_when(
-#       grepl("MO", symbol) ~ as.numeric(str_extract(symbol, "\\d+"))/12,
-#       .default = as.numeric(str_extract(symbol, "\\d+"))),
-#     par_yield = price / 100) %>% 
-#   dplyr:: select(-price) %>% 
-#   tidyr::drop_na()
+fred_codes <- c("DGS1MO","DGS3MO", "DGS6MO", "DGS1", "DGS2","DGS3", "DGS5","DGS7","DGS10","DGS20","DGS30")
 
-# Converted data to a feather file that will run daily with github actions
+rate_data <- tidyquant::tq_get(fred_codes, 
+                               get = "economic.data",
+                               from = "1992-01-01") %>% 
+  dplyr::mutate(
+    T2M = dplyr::case_when(
+      grepl("MO", symbol) ~ as.numeric(str_extract(symbol, "\\d+"))/12,
+      .default = as.numeric(str_extract(symbol, "\\d+"))),
+    par_yield = price / 100) %>% 
+  dplyr:: select(-price) %>% 
+  tidyr::drop_na()
 
-rate_data <- arrow::read_feather("fred_data.feather")
+
+
 
 interpolate_curve <- function(valuation_date) {
   current_curve <- rate_data %>% 
@@ -110,11 +109,11 @@ bootstrap_curve <- function(fred_curve) {
 
 
 price_bond <- function(coupon_rate, face_value, expiry_date, valuation_date, m=2, zero_curve, step_size = 0){
-  
+
   T2M <- interval(valuation_date,expiry_date) %>% 
     time_length("years") %>% 
     round(4)
-  step_size <- step_size * 0.0001
+  
   cfs <- c()
   discount_factors <- c()
   pvs <- c()
@@ -145,6 +144,9 @@ price_bond <- function(coupon_rate, face_value, expiry_date, valuation_date, m=2
       slice(1) %>%
       dplyr::pull(zero_yields)
     
+    #zero_rate <- zero_curve %>%
+    #  dplyr::filter(round(zero_curve$T2M,4) == schedule[i]) %>%
+    #  dplyr::pull(zero_yields)
     
     zero_rate <- zero_rate + step_size
     
@@ -164,7 +166,7 @@ price_bond <- function(coupon_rate, face_value, expiry_date, valuation_date, m=2
     pvs <- append(pvs, pv)
     
   }
-  
+
   table <- data.frame(times, cfs, discount_factors, pvs)
   
   price <- sum(table$pvs)
@@ -192,25 +194,25 @@ calc_delta <- function(coupon_rate, face_value, expiry_date, valuation_date, m, 
   price_up <- price_bond(coupon_rate, face_value, expiry_date, valuation_date, m, zero_curve, step_size = step_size)
   price_dwn <- price_bond(coupon_rate, face_value, expiry_date, valuation_date, m, zero_curve, step_size =  step_size*-1)
   
-  delta <- (price_up - price_dwn)/(2*step_size)
+  delta <- (price_up - price_dwn)/(2*step_size) * step_size
   
   return(delta)
 }
 #max_date <- Sys.Date()
-#delta_test <- calc_delta(0.0357,100,"2035-06-18", "2026-02-06",2,zero_curve, 1)
+#delta_test <- calc_delta(0.0357,100,"2035-06-18",max_date,2,zero_curve, 0.0001)
 
 calc_gamma <- function(coupon_rate, face_value, expiry_date, valuation_date, m, zero_curve, step_size) {
   
   price <- price_bond(coupon_rate, face_value, expiry_date, valuation_date, m, zero_curve, step_size = 0)
-  price_up <- price_bond(coupon_rate, face_value, expiry_date, valuation_date, m, zero_curve, step_size = step_size)
-  price_dwn <- price_bond(coupon_rate, face_value, expiry_date, valuation_date, m, zero_curve, step_size =  step_size*-1)
+  price_up <- price_bond(coupon_rate, face_value, expiry_date, valuation_date, m, zero_curve, step_size)
+  price_dwn <- price_bond(coupon_rate, face_value, expiry_date, valuation_date, m, zero_curve, step_size*-1)
   
   gamma <- (price_up - 2*price + price_dwn)/(step_size^2)
   
   return(gamma)
 }
 
-#gamma_test <- calc_gamma(0.0357,100,"2035-06-18",max_date,2,zero_curve, 1)
+#gamma_test <- calc_gamma(0.0357,100,"2035-06-18",max_date,2,zero_curve, 0.0001)
 
 
 #test_df2 <- data.frame(coupon_rate = 0.0357, face_value = 100, expiry = "2035-06-18", step_size = 0.0001, price = test, delta = delta_test, gamma = gamma_test)
@@ -240,31 +242,4 @@ graph_zero_curve <- function(rate_data = rate_data, code, dateRange){
     add_trace(x = ~date, y = ~zero_yields, type = "scatter", mode = "lines") %>% 
     layout(title = paste0("Zero Curve of ", code, " Treasury Bills"), xaxis = list(title = "Annualized Yield of a Zero Coupon Bond"), yaxis = list(title = "Date"))
   return(zero_graph)
-}
-
-get_master_df <- function(coupon_rate, face_value, valuation_date, m, step_size){
-  zero_curve <- interpolate_curve(valuation_date = valuation_date) %>% bootstrap_curve()
-  prices <- c()
-  Delta <- c()
-  Gamma <- c()
-  for (T in zero_curve$T2M){
-    expiry_date <- as.Date(valuation_date) + dyears(T)
-    
-    price <- price_bond(coupon_rate, face_value, expiry_date, valuation_date, m, zero_curve, 0)
-    prices <- append(prices,price)
-    
-    delta <- calc_delta(coupon_rate, face_value, expiry_date, valuation_date, m, zero_curve, step_size)
-    Delta <- append(Delta, delta)
-    
-    gamma <- calc_gamma(coupon_rate, face_value, expiry_date, valuation_date, m, zero_curve, step_size)
-    Gamma <- append(Gamma, gamma)
-  }
-  master_df <- cbind(zero_curve, prices, Delta, Gamma)
-  return(master_df)
-}
-
-load_delta_heatmap <- function(greek_df, coupon_rate, face_value){
-  greek_df %>% plot_ly() %>% 
-    add_trace(x = ~prices, y = ~T2M, z = ~Delta, type = "heatmap") %>% 
-    layout(title = list(text = paste0("Bond Delta, Price, and Time to Maturity", "<br>",paste0("Coupon Rate = ",coupon_rate *100, "% | Face Value = $",face_value)), size = 15), xaxis = list(title = "Price"), legend = list(title = "Delta"))
 }
