@@ -1,6 +1,5 @@
 library(tidyverse)
 library(tidyquant)
-library(RQuantLib)
 library(plotly)
 
 # fred_codes <- c("DGS1MO","DGS3MO", "DGS6MO", "DGS1", "DGS2","DGS3", "DGS5","DGS7","DGS10","DGS20","DGS30")
