@@ -17,6 +17,11 @@ to value the bonds.
 Below has a graph showing the two yield curves for the selected valuation date. The par yield curve is equivalent to the FRED curve on that day,
 it has the been bootstrapped to the zero yield curve also displayed.
 
-# Analysis
+## Analysis
 
+By clicking the analysis tab users can view the Price, Delta, and Gamma of each bond in the selected portfolio. It is automatically updated when the
+user adds a bond to their portfolio.
 
+## Known Bugs
+
+The RCPPbootstrap_curve function causes R to crash and has been removed from active use.
