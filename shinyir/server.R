@@ -30,6 +30,11 @@ function(input, output, session) {
       "Gamma" = as.numeric())
   )
   
+ # greek_df <- data.frame(
+  #  "Price" = as.numeric(),
+   # "Delta" = as.numeric(),
+    #"Gamma" = as.numeric())
+  
   observeEvent(input$add_bond_button, {
     new_bond <- data.frame("Coupon Rate" = input$coupon_rate,
                            "Face Value" = input$face_value,
@@ -48,7 +53,17 @@ function(input, output, session) {
                             "Coupon Frequency" = character(),
                             check.names = FALSE)
     )
+    prices(data.frame(
+      "Price" = as.numeric(),
+      "Delta" = as.numeric(),
+      "Gamma" = as.numeric()))
+   # greek_df <- data.frame(
+    #  "Price" = as.numeric(),
+     # "Delta" = as.numeric(),
+      #"Gamma" = as.numeric())
   })
+  
+ 
   
   output$yield_curve_header <- renderUI({
     req(input$valuation_date)
@@ -81,4 +96,7 @@ function(input, output, session) {
   output$bond_table <- renderDT({
     DT::datatable(prices(), editable = FALSE)
   })
+  
+
+  
 }
